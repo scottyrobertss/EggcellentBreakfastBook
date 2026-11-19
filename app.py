@@ -1,0 +1,190 @@
+import os
+import mysql.connector
+from mysql.connector import Error, MySQLConnection
+
+def connect_to_db():
+    """ Connects to the MySQL database with pre-configured credentials. """
+    try:
+        connection = mysql.connector.connect(
+            host='localhost',   
+            user='root',    
+            password=os.environ.get('DB_PASSWORD', 'your_password_here'),  
+            database='FoodDB'  
+        )
+        if connection.is_connected():
+            print("Connected to the database")
+            return connection
+    except Error as e:
+        print(f"Error: {e}")
+        return None
+
+
+def register_user(connection):
+    """ Registers a new user with a username and password. """
+    cursor = connection.cursor()
+    username = input("Enter a new username: ")
+    password = input("Enter a new password: ")
+    
+    try:
+        query = "INSERT INTO User (Username, Password) VALUES (%s, %s)"
+        cursor.execute(query, (username, password))
+        connection.commit()
+        print("User registered successfully.")
+    except Error as e:
+        print(f"Error registering user: {e}")
+
+
+def sign_in(connection):
+    """ Allows an existing user to sign in by verifying credentials in the application. """
+    cursor = connection.cursor()
+    username = input("Enter your username: ")
+    password = input("Enter your password: ")
+    
+    query = "SELECT * FROM User WHERE Username = %s AND Password = %s"
+    cursor.execute(query, (username, password))
+    user = cursor.fetchone()
+    
+    if user:
+        print("Login successful.")
+        return username, user[0]  # Return both username and UserID for linking favorites
+    else:
+        print("Invalid username or password.")
+        return None, None
+
+
+
+def get_food_items(connection, search_term=None, ingredients=None, region=None):
+    """ Fetches recipes based on optional search criteria: recipe name, ingredients, or region. """
+    cursor = connection.cursor()
+    # Region lives in FoodItems, so join it to Recipe on the dish name
+    query = """
+        SELECT Recipe.* FROM Recipe
+        LEFT JOIN FoodItems ON Recipe.FoodName = FoodItems.FoodName
+        WHERE 1=1
+    """
+    
+    # Dynamically build query based on provided search parameters
+    if search_term:
+        query += " AND Recipe.FoodName LIKE %s"
+        search_term = f"%{search_term}%"
+    if ingredients:
+        query += " AND Recipe.Ingredients LIKE %s"
+        ingredients = f"%{ingredients}%"
+    if region:
+        query += " AND FoodItems.Region = %s"
+    
+    params = [param for param in (search_term, ingredients, region) if param]
+    cursor.execute(query, params)
+    rows = cursor.fetchall()
+    
+    return rows
+
+
+def display_and_favorite(connection, username, recipes):
+    """ Displays found recipes and allows the user to favorite a selected recipe. """
+    if not recipes:
+        print("No recipes found.")
+        return
+    
+    # Display each recipe with an index
+    for recipe in enumerate(recipes, 1):
+        print(f"{recipe}")
+
+    favorite_choice = input("Enter the number of the recipe you want to favorite, or press Enter to skip: ")
+    if favorite_choice:
+        try:
+            recipe_id = recipes[int(favorite_choice) - 1][0]  # Assuming recipe ID is the first column
+            add_to_favorites(connection, username, recipe_id)
+            print("Recipe added to favorites.")
+        except (IndexError, ValueError):
+            print("Invalid choice. No recipe was added to favorites.")
+
+
+def add_to_favorites(connection, user_id, recipe_id):
+    """ Adds a recipe to the user's favorites in the database. """
+    cursor = connection.cursor()
+    query = "INSERT INTO Favorites (UserID, RecipeID) VALUES (%s, %s)"
+    try:
+        cursor.execute(query, (user_id, recipe_id))
+        connection.commit()
+        print("Recipe added to favorites.")
+    except Error as e:
+        print(f"Error adding to favorites: {e}")
+
+
+
+def view_favorites(connection, user_id):
+    """ Fetches and displays the user's favorite recipes from the database. """
+    cursor = connection.cursor()
+    query = """
+        SELECT Recipe.* FROM Favorites
+        JOIN Recipe ON Favorites.RecipeID = Recipe.id
+        WHERE Favorites.UserID = %s
+    """
+    cursor.execute(query, (user_id,))
+    favorites = cursor.fetchall()
+    
+    if favorites:
+        print("Your Favorites:")
+        for favorite in favorites:
+            print(favorite)
+    else:
+        print("No favorite recipes found.")
+
+
+
+def main():
+    connection = connect_to_db()
+    if not connection:
+        print("No Connection")
+        return
+
+    while True:
+        print("\nWelcome to the Eggcellent Breakfast Book.")
+        print("1: Register")
+        print("2: Sign In")
+        print("0: Exit")
+        
+        choice = input("Enter your choice: ")
+        
+        if choice == '1':
+            register_user(connection)
+        elif choice == '2':
+            username, user_id = sign_in(connection)
+            if username:
+                # User is now logged in with the application (not database credentials)
+                while True:
+                    print("\nSearch Menu")
+                    print("1: Recipe Search")
+                    print("2: Ingredients Search")
+                    print("3: Region Search")
+                    print("4: View Favorites")
+                    print("0: Log Out")
+                    search_choice = input("Enter your choice: ")
+
+                    if search_choice == '1':
+                        recipe_choice = input("Enter recipe name: ")
+                        results = get_food_items(connection, search_term=recipe_choice)
+                        display_and_favorite(connection, user_id, results)
+                    elif search_choice == '2':
+                        ingredients_choice = input("Enter ingredients: ")
+                        results = get_food_items(connection, ingredients=ingredients_choice)
+                        display_and_favorite(connection, user_id, results)
+                    elif search_choice == '3':
+                        region_choice = input("Enter region (e.g., USA, France, Japan, Mexico): ")
+                        results = get_food_items(connection, region=region_choice)
+                        display_and_favorite(connection, user_id, results)
+                    elif search_choice == '4':
+                        view_favorites(connection, user_id)
+                    elif search_choice == '0':
+                        break
+                    else:
+                        print("Invalid choice. Please try again.")
+        elif choice == '0':
+            print("Exiting...")
+            return
+        else:
+            print("Invalid choice. Please try again.")
+
+if __name__ == "__main__":
+    main()
