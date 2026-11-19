@@ -1,6 +1,6 @@
 # Eggcellent Breakfast Book
 
-A MySQL recipe database of 60+ breakfast dishes from around the world, with a Python command-line app for searching recipes and saving favorites. Built for a university Database course.
+A MySQL recipe database of 60+ breakfast dishes from around the world, with a Python command-line app for searching recipes and saving favorites. This was a university Database course group project.
 
 ## Features
 
